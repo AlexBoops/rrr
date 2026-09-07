@@ -1,0 +1,23 @@
+renpy.geometry renpy.matrixcolor renpy.solid
+renpy.alpha renpy.alpha renpy.solid
+renpy.texture
+renpy.alpha renpy.texture
+renpy.ftl
+feniks.outline renpy.texture renpy.texture
+renpy.matrixcolor renpy.solid
+renpy.dissolve renpy.geometry
+MakeVisualNovels.SimulatedLighting renpy.geometry renpy.texture
+renpy.alpha renpy.solid
+renpy.alpha renpy.geometry renpy.texture
+renpy.solid
+renpy.geometry renpy.texture
+renpy.dissolve renpy.dissolve
+renpy.geometry renpy.matrixcolor renpy.texture
+feniks.outline renpy.geometry renpy.texture
+renpy.alpha renpy.alpha renpy.texture
+renpy.mask renpy.mask
+renpy.geometry renpy.mask
+renpy.alpha renpy.geometry renpy.solid
+renpy.geometry renpy.solid
+MakeVisualNovels.SimulatedLighting renpy.texture
+renpy.matrixcolor renpy.texture
