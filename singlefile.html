@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en-us">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>rr</title>
+  <meta name="description" content="Ren'Py visual novel Webport with CDN asset resolution and streaming support" />
+  <meta property="og:title" content="My Femboy Roommate" />
+  <meta property="og:description" content="Ren'Py visual novel Webport with CDN asset resolution and streaming support" />
+  <meta property="og:type" content="website" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- App icons routed via jsDelivr -->
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-72x72.png" sizes="72x72" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-96x96.png" sizes="96x96" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-128x128.png" sizes="128x128" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-144x144.png" sizes="144x144" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-152x152.png" sizes="152x152" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-192x192.png" sizes="192x192" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-384x384.png" sizes="384x384" type="image/png" />
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/icons/icon-512x512.png" sizes="512x512" type="image/png" />
+
+  <meta name="theme-color" content="#000" />
+
+  <!-- Global CDN Interceptor to redirect relative game asset requests (XHR, fetch, video, audio, img) to jsDelivr/GitHub -->
+  <script>
+    (function() {
+      const JSDELIVR_BASE = 'https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/';
+      const GITHACK_BASE  = 'https://raw.githack.com/AlexBoops/rrr/main/';
+
+      function resolveCDNUrl(rawUrl) {
+        if (!rawUrl) return rawUrl;
+        let url = rawUrl;
+        if (typeof url === 'object') {
+          if (url.href) {
+            url = url.href;
+          } else if (url.toString) {
+            url = url.toString();
+          }
+        }
+        if (typeof url !== 'string') return rawUrl;
+
+        // Strip url: prefix if present (used by Ren'Py audio queue for video)
+        if (url.startsWith('url:')) {
+          url = url.slice(4);
+        }
+
+        // Never modify data:, blob:, or javascript: URLs
+        if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('javascript:')) {
+          return url;
+        }
+
+        // Already pointing to an external CDN
+        if (url.startsWith(JSDELIVR_BASE) || url.startsWith(GITHACK_BASE)) {
+          return url;
+        }
+
+        // Merged game zip object URL
+        if (url.includes('game.zip')) {
+          return window.gameZipURL || url;
+        }
+
+        // WASM engine: route via githack
+        if (url.endsWith('.wasm')) {
+          return GITHACK_BASE + 'renpy.wasm';
+        }
+
+        // Ren'Py data file
+        if (url.endsWith('renpy.data')) {
+          return JSDELIVR_BASE + 'renpy.data';
+        }
+
+        // Parse path from absolute or relative
+        let targetPath = url;
+        try {
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const parsed = new URL(url);
+            if (
+              parsed.origin === window.location.origin ||
+              parsed.hostname.includes('hcodx.com') ||
+              parsed.hostname.includes('run.app') ||
+              parsed.hostname.includes('localhost') ||
+              parsed.hostname.includes('127.0.0.1')
+            ) {
+              targetPath = parsed.pathname;
+            } else {
+              return url;
+            }
+          }
+        } catch (e) {}
+
+        let clean = targetPath.replace(/^\/+/, '');
+
+        // Core Ren'Py web distribution files at root
+        if (
+          clean === 'renpy-pre.js' ||
+          clean === 'renpy.js' ||
+          clean === 'web-presplash.jpg' ||
+          clean === 'pwa_catalog.json' ||
+          clean.startsWith('icons/')
+        ) {
+          return JSDELIVR_BASE + clean;
+        }
+
+        const subfolders = ['game/', 'gui/', 'audio/', 'images/', 'fonts/'];
+        for (const sub of subfolders) {
+          const idx = clean.indexOf(sub);
+          if (idx !== -1) {
+            clean = clean.substring(idx);
+            break;
+          }
+        }
+
+        if (clean.startsWith('game/')) {
+          return JSDELIVR_BASE + clean;
+        }
+
+        if (
+          clean.startsWith('audio/') ||
+          clean.startsWith('gui/') ||
+          clean.startsWith('images/') ||
+          clean.startsWith('fonts/')
+        ) {
+          return JSDELIVR_BASE + 'game/' + clean;
+        }
+
+        if (clean === 'Femboy.webm' || clean.endsWith('/Femboy.webm')) {
+          return JSDELIVR_BASE + 'game/gui/Femboy.webm';
+        }
+
+        if (/\.(mp3|ogg|opus|wav|webm|mp4|ogv|png|jpg|jpeg|webp|ttf|otf|rpy|rpyc)$/i.test(clean)) {
+          return JSDELIVR_BASE + 'game/' + clean;
+        }
+
+        return JSDELIVR_BASE + clean;
+      }
+
+      window.resolveCDNUrl = resolveCDNUrl;
+
+      // 1. Intercept XMLHttpRequest.prototype.open
+      const origXHROpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        const redirected = resolveCDNUrl(url);
+        return origXHROpen.call(this, method, redirected, ...rest);
+      };
+
+      // 2. Intercept window.fetch
+      const origFetch = window.fetch;
+      window.fetch = function(resource, init) {
+        if (typeof resource === 'string' || (resource && typeof resource === 'object' && resource.href)) {
+          resource = resolveCDNUrl(resource);
+        } else if (resource && typeof resource.url === 'string') {
+          const newUrl = resolveCDNUrl(resource.url);
+          if (newUrl !== resource.url) {
+            resource = new Request(newUrl, resource);
+          }
+        }
+        return origFetch.call(this, resource, init);
+      };
+
+      function patchSrcDescriptor(proto) {
+        if (!proto) return;
+        const desc = Object.getOwnPropertyDescriptor(proto, 'src');
+        if (desc && desc.set) {
+          Object.defineProperty(proto, 'src', {
+            get: function() {
+              return desc.get.call(this);
+            },
+            set: function(val) {
+              if (this instanceof HTMLMediaElement) {
+                this.crossOrigin = 'anonymous';
+                this.playsInline = true;
+              }
+              const redirected = resolveCDNUrl(val);
+              return desc.set.call(this, redirected);
+            },
+            configurable: true,
+            enumerable: true
+          });
+        }
+      }
+
+      patchSrcDescriptor(HTMLMediaElement.prototype);
+      patchSrcDescriptor(HTMLVideoElement.prototype);
+      patchSrcDescriptor(HTMLAudioElement.prototype);
+      patchSrcDescriptor(HTMLSourceElement.prototype);
+      patchSrcDescriptor(HTMLImageElement.prototype);
+
+      // 3. Intercept Element.prototype.setAttribute
+      const origSetAttribute = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function(name, val) {
+        if (typeof name === 'string' && name.toLowerCase() === 'src') {
+          if (this instanceof HTMLMediaElement || this instanceof HTMLSourceElement || this instanceof HTMLImageElement) {
+            if (this instanceof HTMLMediaElement) {
+              this.crossOrigin = 'anonymous';
+              this.playsInline = true;
+            }
+            val = resolveCDNUrl(val);
+          }
+        }
+        return origSetAttribute.call(this, name, val);
+      };
+
+      // 4. Intercept window.Audio constructor
+      const OrigAudio = window.Audio;
+      window.Audio = function(src) {
+        const audio = new OrigAudio();
+        audio.crossOrigin = 'anonymous';
+        if (src) {
+          audio.src = resolveCDNUrl(src);
+        }
+        return audio;
+      };
+      window.Audio.prototype = OrigAudio.prototype;
+
+      // 5. Intercept HTMLMediaElement.prototype.play
+      const origPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function(...args) {
+        if (this instanceof HTMLVideoElement) {
+          this.crossOrigin = 'anonymous';
+          this.playsInline = true;
+        }
+        return origPlay.apply(this, args);
+      };
+
+      window.addEventListener('unhandledrejection', function(e) {
+        if (e.reason && (e.reason.name === 'NotSupportedError' || e.reason.name === 'NotAllowedError')) {
+          console.warn('[Handled Media Rejection]', e.reason.message);
+          e.preventDefault();
+        }
+      });
+
+      let _renpyAudio = undefined;
+      function wrapRenpyAudioQueue(audioObj) {
+        if (!audioObj || typeof audioObj !== 'object') return;
+        let origQueue = audioObj.queue;
+        Object.defineProperty(audioObj, 'queue', {
+          configurable: true,
+          enumerable: true,
+          get: function() {
+            return origQueue;
+          },
+          set: function(newFn) {
+            origQueue = function(channel, file, name, synchro_start, fadein, tight, start, end, relative_volume, afid) {
+              if (typeof file === 'string' && file.startsWith('url:')) {
+                const rawPath = file.slice(4);
+                file = 'url:' + resolveCDNUrl(rawPath);
+              }
+              return newFn.call(this, channel, file, name, synchro_start, fadein, tight, start, end, relative_volume, afid);
+            };
+          }
+        });
+        if (typeof origQueue === 'function') {
+          audioObj.queue = origQueue;
+        }
+      }
+
+      Object.defineProperty(window, 'renpyAudio', {
+        configurable: true,
+        enumerable: true,
+        get: function() {
+          return _renpyAudio;
+        },
+        set: function(val) {
+          _renpyAudio = val;
+          wrapRenpyAudioQueue(val);
+        }
+      });
+    })();
+  </script>
+
+  <style>
+    html {
+      background: #444;
+      font-family: sans-serif;
+    }
+
+    body, html {
+      overscroll-behavior: none;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+    }
+
+    #canvas, #overlayDiv {
+      position: absolute;
+      top: 0px;
+      left: 0px;
+      width: 100%;
+      height: 100%;
+      border: 0 none;
+    }
+
+    #canvas {
+      background: #000;
+    }
+
+    .visible {
+      visibility: visible;
+      opacity: 1.0;
+      transition: opacity .1s linear;
+    }
+
+    .hidden {
+      visibility: hidden;
+      opacity: 0;
+      transition: visibility 0s .25s, opacity .25s linear;
+    }
+
+    #statusDiv, #inputDiv {
+      background: rgba(0, 0, 0, 0.75);
+      width: 50%;
+      margin: auto;
+      min-width: 340px;
+      padding: 10px;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      border-radius: 0 0 5px 5px;
+      z-index: 1000;
+    }
+
+    #statusTextDiv {
+      overflow: auto;
+      max-height: 40vh;
+      color: #ccc;
+      font-size: 14px;
+    }
+
+    #statusProgress {
+      display: block;
+      width: 100%;
+      margin-top: 5px;
+    }
+
+    #inputDiv {
+      width: 65%;
+      padding-left: 10px;
+      padding-right: 20px;
+    }
+
+    #inputPrompt {
+      color: #eee;
+      font-size: 150%;
+      margin-bottom: 1em;
+      margin-top: 1em;
+    }
+
+    #inputText {
+      width: 100%;
+      font-size: 175%;
+      padding: 5px;
+      background: inherit;
+      color: #eee;
+    }
+
+    #inputText:focus {
+      color: #ffffff;
+    }
+
+    #ContextContainer {
+      position: absolute;
+      left: 0px;
+      top: 0px;
+      color: white;
+      z-index: 500;
+    }
+
+    #ContextContainer.shown {
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 0px 0px 5px 0px;
+    }
+
+    #ContextButton {
+      text-decoration: none;
+      color: lightgrey;
+      font-size: xx-large;
+      cursor: pointer;
+      user-select: none;
+      -moz-user-select: none;
+      padding: 10px 10px;
+      opacity: .75;
+      display: inline-block;
+    }
+
+    #ContextButton:focus {
+      outline: none;
+      color: #ffffff;
+      opacity: 1.0;
+    }
+
+    #ContextMenu a {
+      text-decoration: none;
+      color: lightgrey;
+      background: #444;
+      height: 48px;
+      width: 250px;
+      border-radius: 5px;
+      border: 1px solid lightgrey;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 5px 5px;
+      opacity: 1.0;
+    }
+
+    #ContextMenu a:hover {
+      text-decoration: none;
+      background: #666666;
+      color: #ffffff;
+    }
+
+    #presplash {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: block;
+      margin: auto;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .watermark {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      color: rgba(255,255,255,0.5);
+      font-family: sans-serif;
+      font-size: 12px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root" style="display: none;"></div>
+  <script type="module" src="/src/main.tsx"></script>
+
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <div id="overlayDiv"></div>
+
+  <!-- Splash screen -->
+  <img id="presplash" src="https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/web-presplash.jpg" alt="Presplash">
+
+  <div id="ContextContainer">
+    <a id="ContextButton" role="button" aria-label="Game Menu">&#8801;</a><br />
+    <div id="ContextMenu" style="display: none;">
+      <input id="ID_SavegamesImport" type="file" onchange="onSavegamesImport(this)" accept="application/zip" style="display:none"></input>
+      <a href="javascript:document.getElementById('ID_SavegamesImport').click();">Import Saves</a>
+      <a href="javascript:onSavegamesExport();">Export Saves</a>
+      <a href="javascript:FSDownload('/log.txt', 'text/plain');">Download Log</a>
+      <a href="https://www.renpy.org/" target="_blank" rel="noreferrer">Powered by Ren'Py</a>
+    </div>
+  </div>
+
+  <div id="statusDiv" class="visible">
+    <div id="statusTextDiv">Starting download...</div>
+    <progress id="statusProgress" value="0" max="100"></progress>
+  </div>
+
+  <div class="watermark">Webport by jrdndevss._ · celestial.press</div>
+
+  <div id="inputDiv" class="hidden">
+    <form id="inputForm">
+      <div id="inputPrompt"></div>
+      <input id="inputText" type="text">
+    </form>
+  </div>
+
+  <script>
+    const PART_COUNT = 5;
+    const JSDELIVR_BASE = 'https://cdn.jsdelivr.net/gh/AlexBoops/rrr@main/';
+    const GITHACK_BASE  = 'https://raw.githack.com/AlexBoops/rrr/main/';
+
+    const statusDiv = document.getElementById('statusDiv');
+    const statusTextDiv = document.getElementById('statusTextDiv');
+    const statusProgress = document.getElementById('statusProgress');
+
+    function updateStatus(text, percent) {
+      if (statusTextDiv) statusTextDiv.textContent = text;
+      if (statusProgress && percent !== undefined) statusProgress.value = percent;
+      if (statusDiv) {
+        statusDiv.classList.remove('hidden');
+        statusDiv.classList.add('visible');
+      }
+    }
+
+    const loadScript = (src) => new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.crossOrigin = 'anonymous';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(script);
+    });
+
+    (async function run() {
+      try {
+        const buffers = [];
+        for (let i = 0; i < PART_COUNT; i++) {
+          updateStatus(`Loading part ${i + 1} of ${PART_COUNT}...`, Math.round((i / PART_COUNT) * 100));
+          const res = await fetch(`${JSDELIVR_BASE}game.zip.part${i}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status} on game.zip.part${i}`);
+          buffers.push(await res.arrayBuffer());
+        }
+
+        updateStatus('Assembling game archive...', 100);
+        const totalLength = buffers.reduce((acc, b) => acc + b.byteLength, 0);
+        const mergedZip = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const buf of buffers) {
+          mergedZip.set(new Uint8Array(buf), offset);
+          offset += buf.byteLength;
+        }
+
+        const zipBlob = new Blob([mergedZip], { type: 'application/zip' });
+        window.gameZipURL = URL.createObjectURL(zipBlob);
+
+        window.Module = window.Module || {};
+        window.Module.canvas = document.getElementById('canvas');
+
+        window.Module.locateFile = function(path, prefix) {
+          if (path.includes('game.zip')) {
+            return window.gameZipURL;
+          }
+          if (path.endsWith('.wasm')) {
+            return GITHACK_BASE + 'renpy.wasm';
+          }
+          return window.resolveCDNUrl(path);
+        };
+
+        window.Module.printErr = function(text) {
+          console.warn('[RenPy Runtime]', text);
+        };
+
+        updateStatus('Loading Ren\'Py engine...', 100);
+
+        await loadScript(`${JSDELIVR_BASE}renpy-pre.js`);
+        await loadScript(`${JSDELIVR_BASE}renpy.js`);
+
+      } catch (err) {
+        console.error(err);
+        updateStatus(`Error: ${err.message}`, 0);
+      }
+    })();
+  </script>
+</body>
+</html>
